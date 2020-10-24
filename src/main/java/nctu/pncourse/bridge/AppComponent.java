@@ -54,6 +54,7 @@ public class AppComponent implements SomeInterface {
     protected void activate() {
         cfgService.registerProperties(getClass());
         log.info("Started");
+        log.info("Hello");
     }
 
     @Deactivate
