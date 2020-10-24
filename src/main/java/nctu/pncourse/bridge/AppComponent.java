@@ -33,6 +33,7 @@ import java.util.Properties;
 import static org.onlab.util.Tools.get;
 
 // Imported be coder
+import org.onlab.packet.Ethernet;
 import org.onosproject.net.flowobjective.DefaultForwardingObjective;
 import org.onosproject.net.flowobjective.ForwardingObjective;
 import org.onosproject.net.packet.PacketPriority;
@@ -40,11 +41,11 @@ import org.onosproject.net.packet.PacketService;
 import org.onosproject.net.packet.PacketProcessor;
 import org.onosproject.net.packet.PacketContext;
 import org.onosproject.net.packet.InboundPacket;
-import org.onlab.packet.Ethernet;
 import org.onosproject.net.Host;
 import org.onosproject.net.HostId;
 import org.onosproject.net.host.HostService;
 import org.onosproject.net.topology.TopologyService;
+import org.onosproject.net.DeviceId;
 
 import org.onosproject.net.flow.DefaultTrafficSelector;
 import org.onosproject.net.flow.TrafficSelector;
@@ -58,12 +59,12 @@ import java.util.*;
 /**
  * Skeletal ONOS application component.
  */
-@Component(immediate = true,
+@Component(immediate = true/*,
            service = {SomeInterface.class},
-           property = {
+            property = {
                "someProperty=Some Default String Value",
-           })
-public class AppComponent implements SomeInterface {
+           } */)
+public class AppComponent {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
     private ReactivePacketProcessor processor = new ReactivePacketProcessor();
@@ -82,6 +83,9 @@ public class AppComponent implements SomeInterface {
     @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
     protected TopologyService topologyService;
 
+    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    protected FlowObjectiveService flowObjectiveService;
+
     /** Some configurable property. */    
     // private String someProperty;
 
@@ -92,7 +96,7 @@ public class AppComponent implements SomeInterface {
     protected void activate() {
         // cfgService.registerProperties(getClass());
         appId = coreService.registerApplication("nctu.pncourse.demo");
-        packetService.addProcessor(processor, PacketProcessor.directory(2));    // ??
+        packetService.addProcessor(processor, PacketProcessor.directory(2));  
         TrafficSelector.builder selector = DefaultTrafficSelector.builder();
         selector.matchEthType(Ethernet.TYPE_IPV4);  // Does arp have to be match>
 
@@ -115,27 +119,26 @@ public class AppComponent implements SomeInterface {
                 return;
             InboundPacket pkt = context.inpacket();
             Ethernet ethPkt = pkt.parse();
+            if (ethPkt == null)
+                return;
 
             HostId srcMAC = HostId.hostId(ethPkt.getSourceMac());
             HostId dstMAC = HostId.hostId(ethPkt.getDestinationMAC());
             Host dst = hostService.getHost(dstMAC);
 
-            if (ethPkt == null)
-                return;
-
             // Check whether inpacke is in the MAC table
-            if (macTables.get(pc.inpacket().receivedFrom()) != null) {
-                macTables.remove(pc.inpacket().receivedFrom());
+            if (macTables.get(pc.inpacket().receivedFrom()).deviceId() != null) {
+                macTables.remove(pc.inpacket().receivedFrom().deviceId());
                 installRule(context, srcMAC, dstMAC);
                 packetOut(context, PortNumber.TABLE);
                 return;
             }
             else {
                 // push into map
-                macTables.putIfAbsent(pc.inpacket().receivedFrom(), Map.newConcurrentMap());
+                macTables.putIfAbsent(pc.inpacket().receivedFrom().deviceId(), Map.newConcurrentMap());
             }
 
-            if (dst == null)     // Does arp have to be match>
+            if (dst == null)     // Do we have to match arp?
             {
                 flood(context);
                 return;
@@ -147,7 +150,7 @@ public class AppComponent implements SomeInterface {
     }
 
     private void flood(PacketContext context) {
-        if (topologyService.isBroadcastPoint(topologyService.currentTopology(), context.inpacket().receivedFrom())) // ??
+        if (topologyService.isBroadcastPoint(topologyService.currentTopology(), context.inpacket().receivedFrom()))
             packetOut(context, Portnumber.FLOOD);
         else
             context.block();
@@ -166,7 +169,8 @@ public class AppComponent implements SomeInterface {
 
         if(src == null || dst == null){
             return;
-        }else{
+        } else
+        {
             selectorBuilder.matchEthSrc(inPkt.getSourceMAC())
                     .matchEthDst(inPkt.getDestinationMAC());
 
@@ -184,6 +188,7 @@ public class AppComponent implements SomeInterface {
                     .add();
 
             flowObjectiveService.forward(context.inPacket().receivedFrom().deviceId(), forwardingObjective);
+        }
     }
 
     // @Modified
@@ -199,5 +204,4 @@ public class AppComponent implements SomeInterface {
     // public void someMethod() {
     //     log.info("Invoked");
     // }
-
 }
