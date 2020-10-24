@@ -32,6 +32,29 @@ import java.util.Properties;
 
 import static org.onlab.util.Tools.get;
 
+// Imported be coder
+import org.onosproject.net.flowobjective.DefaultForwardingObjective;
+import org.onosproject.net.flowobjective.ForwardingObjective;
+import org.onosproject.net.packet.PacketPriority;
+import org.onosproject.net.packet.PacketService;
+import org.onosproject.net.packet.PacketProcessor;
+import org.onosproject.net.packet.PacketContext;
+import org.onosproject.net.packet.InboundPacket;
+import org.onlab.packet.Ethernet;
+import org.onosproject.net.Host;
+import org.onosproject.net.HostId;
+import org.onosproject.net.host.HostService;
+import org.onosproject.net.topology.TopologyService;
+
+import org.onosproject.net.flow.DefaultTrafficSelector;
+import org.onosproject.net.flow.TrafficSelector;
+import org.onosproject.net.PortNumber;
+
+import org.onosproject.net.flow.TrafficTreatment;
+import org.onosproject.net.flow.DefaultTrafficTreatment;
+
+import org.onosproject.net.flowobjective.FlowObjectiveService;
+import java.util.*;
 /**
  * Skeletal ONOS application component.
  */
@@ -43,38 +66,138 @@ import static org.onlab.util.Tools.get;
 public class AppComponent implements SomeInterface {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
+    private ReactivePacketProcessor processor = new ReactivePacketProcessor();
+    private ApplicationId appId;
+    protected Map<DeviceId, Map<MacAddress, Portnumber>> macTables = Maps.newConcurrentMap();
 
-    /** Some configurable property. */
-    private String someProperty;
+    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    protected CoreService coreService;
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    protected ComponentConfigService cfgService;
+    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    protected PacketService packetService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    protected HostService hostService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    protected TopologyService topologyService;
+
+    /** Some configurable property. */    
+    // private String someProperty;
+
+    // @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    // protected ComponentConfigService cfgService;
 
     @Activate
     protected void activate() {
-        cfgService.registerProperties(getClass());
-        log.info("Started");
-        log.info("Hello");
+        // cfgService.registerProperties(getClass());
+        appId = coreService.registerApplication("nctu.pncourse.demo");
+        packetService.addProcessor(processor, PacketProcessor.directory(2));    // ??
+        TrafficSelector.builder selector = DefaultTrafficSelector.builder();
+        selector.matchEthType(Ethernet.TYPE_IPV4);  // Does arp have to be match>
+
+        packetService.requestPackets(selector.build(), PacketPriority.REACTIVE, appId);
+        log.info("GoGo");
     }
 
     @Deactivate
     protected void deactivate() {
-        cfgService.unregisterProperties(getClass(), false);
+        // cfgService.unregisterProperties(getClass(), false);
+        packetService.removeProcessor(processor);
+        processor = null;
         log.info("Stopped");
     }
 
-    @Modified
-    public void modified(ComponentContext context) {
-        Dictionary<?, ?> properties = context != null ? context.getProperties() : new Properties();
-        if (context != null) {
-            someProperty = get(properties, "someProperty");
+    private class ReactivePacketProcessor implements PacketProcessor {
+        @Override
+        public void process(PacketContext context) {
+            if (context.isHandled()) 
+                return;
+            InboundPacket pkt = context.inpacket();
+            Ethernet ethPkt = pkt.parse();
+
+            HostId srcMAC = HostId.hostId(ethPkt.getSourceMac());
+            HostId dstMAC = HostId.hostId(ethPkt.getDestinationMAC());
+            Host dst = hostService.getHost(dstMAC);
+
+            if (ethPkt == null)
+                return;
+
+            // Check whether inpacke is in the MAC table
+            if (macTables.get(pc.inpacket().receivedFrom()) != null) {
+                macTables.remove(pc.inpacket().receivedFrom());
+                installRule(context, srcMAC, dstMAC);
+                packetOut(context, PortNumber.TABLE);
+                return;
+            }
+            else {
+                // push into map
+                macTables.putIfAbsent(pc.inpacket().receivedFrom(), Map.newConcurrentMap());
+            }
+
+            if (dst == null)     // Does arp have to be match>
+            {
+                flood(context);
+                return;
+            }
+            installRule(context, srcMAC, dstMAC);
+            packetOut(context, PortNumber.TABLE);
+            return;
         }
-        log.info("Reconfigured");
     }
 
-    @Override
-    public void someMethod() {
-        log.info("Invoked");
+    private void flood(PacketContext context) {
+        if (topologyService.isBroadcastPoint(topologyService.currentTopology(), context.inpacket().receivedFrom())) // ??
+            packetOut(context, Portnumber.FLOOD);
+        else
+            context.block();
     }
+
+    private void packetOut(PacketContext context, PortNumber portnumber) {
+        context.treatmentBuilder().setOutput(portnumber);
+        context.send();
+    }
+
+    private void installRule(PacketContext context, HostId srcMAC, HostId dstMAC) {
+        Ethernet inPkt = context.inPacket().parsed();
+        TrafficSelector.Builder selectorBuilder = DefaultTrafficSelector.builder();
+        Host dst = hostService.getHost(dstMAC);
+        Host src = hostService.getHost(srcMAC);
+
+        if(src == null || dst == null){
+            return;
+        }else{
+            selectorBuilder.matchEthSrc(inPkt.getSourceMAC())
+                    .matchEthDst(inPkt.getDestinationMAC());
+
+            TrafficTreatment treatment = DefaultTrafficTreatment.builder()
+                    .setOutput(dst.location().port())
+                    .build();
+
+            ForwardingObjective forwardingObjective = DefaultForwardingObjective.builder()
+                    .withSelector(selectorBuilder.build())
+                    .withTreatment(treatment)
+                    .withPriority(10)
+                    .withFlag(ForwardingObjective.Flag.VERSATILE)
+                    .fromApp(appId)
+                    .makeTemporary(10)
+                    .add();
+
+            flowObjectiveService.forward(context.inPacket().receivedFrom().deviceId(), forwardingObjective);
+    }
+
+    // @Modified
+    // public void modified(ComponentContext context) {
+    //     Dictionary<?, ?> properties = context != null ? context.getProperties() : new Properties();
+    //     if (context != null) {
+    //         someProperty = get(properties, "someProperty");
+    //     }
+    //     log.info("Reconfigured");
+    // }
+
+    // @Override
+    // public void someMethod() {
+    //     log.info("Invoked");
+    // }
 
 }
