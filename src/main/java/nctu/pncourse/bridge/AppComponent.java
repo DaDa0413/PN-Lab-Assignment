@@ -60,7 +60,7 @@ import org.onosproject.net.flow.DefaultTrafficTreatment;
 
 import org.onosproject.net.flowobjective.FlowObjectiveService;
 import java.util.*;
-import javafx.util.Pair;
+// import javafx.util.Pair;
 
 import org.onlab.packet.MacAddress;
 /**
@@ -76,7 +76,8 @@ public class AppComponent {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private ReactivePacketProcessor processor = new ReactivePacketProcessor();
     private ApplicationId appId;
-    protected Map<DeviceId, Pair<MacAddress, PortNumber>> macTables = Maps.newConcurrentMap();
+    // protected Map<DeviceId, Pair<MacAddress, PortNumber>> macTables = Maps.newConcurrentMap();
+    protected Map<DeviceId, DeviceId> macTables = Maps.newConcurrentMap();
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected CoreService coreService;
@@ -134,7 +135,7 @@ public class AppComponent {
             Host dst = hostService.getHost(dstMAC);
 
             // Check whether inPacket is in the MAC table
-            if (macTables.get(context.inPacket().receivedFrom()).deviceId() != null) {
+            if (macTables.get(context.inPacket().receivedFrom().deviceId()) != null) {
                 macTables.remove(context.inPacket().receivedFrom().deviceId());
                 installRule(context, srcMAC, dstMAC);
                 packetOut(context, PortNumber.TABLE);
@@ -142,8 +143,9 @@ public class AppComponent {
             }
             else {
                 // push into map
-                macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), new Pair<MacAddress, PortNumber>(context.inPacket().parsed().getSourceMAC()
-                                    , context.inPacket().receivedFrom().port()));
+                // macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), new Pair<MacAddress, PortNumber>(context.inPacket().parsed().getSourceMAC()
+                //                     , context.inPacket().receivedFrom().port()));
+                macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), context.inPacket().receivedFrom().deviceId());
             }
 
             if (dst == null)     // Do we have to match arp?
