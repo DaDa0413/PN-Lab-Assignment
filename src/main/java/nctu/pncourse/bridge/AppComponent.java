@@ -33,6 +33,10 @@ import java.util.Properties;
 import static org.onlab.util.Tools.get;
 
 // Imported be coder
+import com.google.common.collect.Maps;
+import org.onosproject.core.ApplicationId;
+import org.onosproject.core.CoreService;
+
 import org.onlab.packet.Ethernet;
 import org.onosproject.net.flowobjective.DefaultForwardingObjective;
 import org.onosproject.net.flowobjective.ForwardingObjective;
@@ -56,6 +60,9 @@ import org.onosproject.net.flow.DefaultTrafficTreatment;
 
 import org.onosproject.net.flowobjective.FlowObjectiveService;
 import java.util.*;
+import javafx.util.Pair;
+
+import org.onlab.packet.MacAddress;
 /**
  * Skeletal ONOS application component.
  */
@@ -69,21 +76,21 @@ public class AppComponent {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private ReactivePacketProcessor processor = new ReactivePacketProcessor();
     private ApplicationId appId;
-    protected Map<DeviceId, Map<MacAddress, Portnumber>> macTables = Maps.newConcurrentMap();
+    protected Map<DeviceId, Pair<MacAddress, PortNumber>> macTables = Maps.newConcurrentMap();
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected CoreService coreService;
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected PacketService packetService;
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected HostService hostService;
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected TopologyService topologyService;
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY_UNARY)
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected FlowObjectiveService flowObjectiveService;
 
     /** Some configurable property. */    
@@ -96,8 +103,8 @@ public class AppComponent {
     protected void activate() {
         // cfgService.registerProperties(getClass());
         appId = coreService.registerApplication("nctu.pncourse.demo");
-        packetService.addProcessor(processor, PacketProcessor.directory(2));  
-        TrafficSelector.builder selector = DefaultTrafficSelector.builder();
+        packetService.addProcessor(processor, PacketProcessor.director(2));  
+        TrafficSelector.Builder selector = DefaultTrafficSelector.builder();
         selector.matchEthType(Ethernet.TYPE_IPV4);  // Does arp have to be match>
 
         packetService.requestPackets(selector.build(), PacketPriority.REACTIVE, appId);
@@ -117,25 +124,26 @@ public class AppComponent {
         public void process(PacketContext context) {
             if (context.isHandled()) 
                 return;
-            InboundPacket pkt = context.inpacket();
-            Ethernet ethPkt = pkt.parse();
+            InboundPacket pkt = context.inPacket();
+            Ethernet ethPkt = pkt.parsed();
             if (ethPkt == null)
                 return;
 
-            HostId srcMAC = HostId.hostId(ethPkt.getSourceMac());
+            HostId srcMAC = HostId.hostId(ethPkt.getSourceMAC());
             HostId dstMAC = HostId.hostId(ethPkt.getDestinationMAC());
             Host dst = hostService.getHost(dstMAC);
 
-            // Check whether inpacke is in the MAC table
-            if (macTables.get(pc.inpacket().receivedFrom()).deviceId() != null) {
-                macTables.remove(pc.inpacket().receivedFrom().deviceId());
+            // Check whether inPacket is in the MAC table
+            if (macTables.get(context.inPacket().receivedFrom()).deviceId() != null) {
+                macTables.remove(context.inPacket().receivedFrom().deviceId());
                 installRule(context, srcMAC, dstMAC);
                 packetOut(context, PortNumber.TABLE);
                 return;
             }
             else {
                 // push into map
-                macTables.putIfAbsent(pc.inpacket().receivedFrom().deviceId(), Map.newConcurrentMap());
+                macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), new Pair<MacAddress, PortNumber>(context.inPacket().parsed().getSourceMAC()
+                                    , context.inPacket().receivedFrom().port()));
             }
 
             if (dst == null)     // Do we have to match arp?
@@ -150,14 +158,14 @@ public class AppComponent {
     }
 
     private void flood(PacketContext context) {
-        if (topologyService.isBroadcastPoint(topologyService.currentTopology(), context.inpacket().receivedFrom()))
-            packetOut(context, Portnumber.FLOOD);
+        if (topologyService.isBroadcastPoint(topologyService.currentTopology(), context.inPacket().receivedFrom()))
+            packetOut(context, PortNumber.FLOOD);
         else
             context.block();
     }
 
-    private void packetOut(PacketContext context, PortNumber portnumber) {
-        context.treatmentBuilder().setOutput(portnumber);
+    private void packetOut(PacketContext context, PortNumber portNumber) {
+        context.treatmentBuilder().setOutput(portNumber);
         context.send();
     }
 
