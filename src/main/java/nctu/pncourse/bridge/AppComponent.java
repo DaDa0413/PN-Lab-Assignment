@@ -50,10 +50,13 @@ import org.onosproject.net.HostId;
 import org.onosproject.net.host.HostService;
 import org.onosproject.net.topology.TopologyService;
 import org.onosproject.net.DeviceId;
-
 import org.onosproject.net.flow.DefaultTrafficSelector;
 import org.onosproject.net.flow.TrafficSelector;
 import org.onosproject.net.PortNumber;
+
+import org.onosproject.net.flow.DefaultFlowRule;
+import org.onosproject.net.flow.FlowRule;
+import org.onosproject.net.flow.FlowRuleService;
 
 import org.onosproject.net.flow.TrafficTreatment;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
@@ -77,7 +80,7 @@ public class AppComponent {
     private ReactivePacketProcessor processor = new ReactivePacketProcessor();
     private ApplicationId appId;
     // protected Map<DeviceId, Pair<MacAddress, PortNumber>> macTables = Maps.newConcurrentMap();
-    protected Map<DeviceId, DeviceId> macTables = Maps.newConcurrentMap();
+    protected Map<DeviceId, Map<MacAddress, PortNumber>> macTables = Maps.newConcurrentMap();
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected CoreService coreService;
@@ -93,6 +96,9 @@ public class AppComponent {
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected FlowObjectiveService flowObjectiveService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected FlowRuleService flowRuleService;
 
     /** Some configurable property. */    
     // private String someProperty;
@@ -132,6 +138,8 @@ public class AppComponent {
 
             HostId srcMAC = HostId.hostId(ethPkt.getSourceMAC());
             HostId dstMAC = HostId.hostId(ethPkt.getDestinationMAC());
+            log.info("Daniel src MAC: " + srcMAC);
+            log.info("Daniel dst MAC: " + dstMAC);
             Host dst = hostService.getHost(dstMAC);
 
             // Check whether inPacket is in the MAC table
@@ -148,6 +156,7 @@ public class AppComponent {
             //     macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), context.inPacket().receivedFrom().deviceId());
             // }
 
+            // This line will always return
             if (dst == null || ethPkt.getEtherType() == Ethernet.TYPE_ARP)   
             {
                 flood(context);
@@ -179,16 +188,32 @@ public class AppComponent {
         Host dst = hostService.getHost(dstMAC);
         Host src = hostService.getHost(srcMAC);
 
-        if(src == null || dst == null){
-            return;
+        macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), Maps.newConcurrentMap());
+        Map<MacAddress, PortNumber> macTable = macTables.get(context.inPacket().receivedFrom().deviceId());
+        MacAddress srcMac = context.inPacket().parsed().getSourceMAC();
+        MacAddress dstMac = context.inPacket().parsed().getDestinationMAC();
+        log.info("Daniel src Mac: " + srcMac);
+        log.info("Daniel dst Mac: " + dstMac);
+        macTable.put(srcMac, context.inPacket().receivedFrom().port());
+
+        PortNumber outPort = macTable.get(dstMac);
+        if(outPort == null){
+            packetOut(context, PortNumber.FLOOD);
         } else
         {
-            // selectorBuilder.matchEthSrc(inPkt.getSourceMAC())
-            //         .matchEthDst(inPkt.getDestinationMAC());
+            selectorBuilder.matchEthSrc(inPkt.getSourceMAC())
+                    .matchEthDst(inPkt.getDestinationMAC());
 
-            // TrafficTreatment treatment = DefaultTrafficTreatment.builder()
-            //         .setOutput(dst.location().port())
-            //         .build();
+            TrafficTreatment treatment = DefaultTrafficTreatment.builder()
+                    .setOutput(dst.location().port()).build();
+
+            FlowRule fr = DefaultFlowRule.builder()
+                .withSelector(selectorBuilder.build())
+                .withTreatment(treatment)
+                .forDevice(context.inPacket().receivedFrom().deviceId()).withPriority(PacketPriority.REACTIVE.priorityValue())
+                .makeTemporary(60)
+                .fromApp(appId).build();
+            flowRuleService.applyFlowRules(fr);
 
             // ForwardingObjective forwardingObjective = DefaultForwardingObjective.builder()
             //         .withSelector(selectorBuilder.build())
@@ -201,8 +226,6 @@ public class AppComponent {
 
             // flowObjectiveService.forward(context.inPacket().receivedFrom().deviceId(), forwardingObjective);
             // packetOut(context, PortNumber.TABLE);
-
-            
         }
     }
 
