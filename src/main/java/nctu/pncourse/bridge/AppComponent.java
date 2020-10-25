@@ -53,6 +53,8 @@ import org.onosproject.net.DeviceId;
 import org.onosproject.net.flow.DefaultTrafficSelector;
 import org.onosproject.net.flow.TrafficSelector;
 import org.onosproject.net.PortNumber;
+import org.onosproject.net.ConnectPoint;
+
 
 import org.onosproject.net.flow.DefaultFlowRule;
 import org.onosproject.net.flow.FlowRule;
@@ -79,7 +81,7 @@ public class AppComponent {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private ReactivePacketProcessor processor = new ReactivePacketProcessor();
     private ApplicationId appId;
-    // protected Map<DeviceId, Pair<MacAddress, PortNumber>> macTables = Maps.newConcurrentMap();
+
     protected Map<DeviceId, Map<MacAddress, PortNumber>> macTables = Maps.newConcurrentMap();
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
@@ -131,103 +133,88 @@ public class AppComponent {
         public void process(PacketContext context) {
             if (context.isHandled()) 
                 return;
-            InboundPacket pkt = context.inPacket();
-            Ethernet ethPkt = pkt.parsed();
+
+            // To simplify parameter's length
+            Ethernet ethPkt = context.inPacket().parsed();
             if (ethPkt == null)
                 return;
+            ConnectPoint cp = context.inPacket().receivedFrom();
+            MacAddress srcMac = ethPkt.getSourceMAC();
+            MacAddress dstMac = ethPkt.getDestinationMAC();
 
-            HostId srcId = HostId.hostId(ethPkt.getSourceMAC());    // creeate 2 hostId object
-            HostId dstId = HostId.hostId(ethPkt.getDestinationMAC());
-            log.info("Daniel src MAC: " + srcId);
-            log.info("Daniel dst MAC: " + dstId);
-            // Host dst = hostService.getHost(dstId);
+            // log.info("Daniel src MAC: " + srcMac);
+            // log.info("Daniel dst MAC: " + dstMac);
 
-            // Check whether inPacket is in the MAC table
-            // if (macTables.get(context.inPacket().receivedFrom().deviceId()) != null) {
-            //     macTables.remove(context.inPacket().receivedFrom().deviceId());
-            //     installRule(context, srcMAC, dstMAC);
-            //     packetOut(context, PortNumber.TABLE);
-            //     return;
-            // }
-            // else {
-            //     // push into map
-            //     // macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), new Pair<MacAddress, PortNumber>(context.inPacket().parsed().getSourceMAC()
-            //     //                     , context.inPacket().receivedFrom().port()));
-            //     macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), context.inPacket().receivedFrom().deviceId());
-            // }
+            // Create new device if it is not in mactables
+            macTables.putIfAbsent(cp.deviceId(), Maps.newConcurrentMap());
+            Map<MacAddress, PortNumber> macTable = macTables.get(cp.deviceId());
 
-            // This line will always return
-            if (dst == null || ethPkt.getEtherType() == Ethernet.TYPE_ARP)   
-            {
-                flood(context);
+            // Put input mac and its port into the current device
+            // log.info("Daniel Put DeviceId Src, port: " + cp.deviceId() + " " + srcMac + " "+ cp.port());
+            macTable.putIfAbsent(srcMac, cp.port());
+
+            PortNumber outPort = macTable.get(dstMac);
+
+
+            if (outPort == null) {
+                if (ethPkt.getEtherType() == Ethernet.TYPE_ARP) {
+                    flood(context);
+                    return;
+                }
+                else {
+                    log.info("Daniel: outPort not found");
+                    flood(context);
+                    return;
+                }
+            }
+            else {
+                log.info("Daniel: outPort found");
+                installRule(context, srcMac, dstMac, outPort);
+                packetOut(context, outPort);
                 return;
             }
-            installRule(context, srcId, dstId);
-            packetOut(context, PortNumber.TABLE);
-            return;
         }
-    }
+    
 
-    // It should be correct
-    private void flood(PacketContext context) {
-        if (topologyService.isBroadcastPoint(topologyService.currentTopology(), context.inPacket().receivedFrom()))
-            packetOut(context, PortNumber.FLOOD);
-        else
-            context.block();
-    }
+        // It should be correct
+        public void flood(PacketContext context) {
+            if (topologyService.isBroadcastPoint(topologyService.currentTopology(), context.inPacket().receivedFrom()))
+                packetOut(context, PortNumber.FLOOD);
+            else
+                context.block();
+        }
 
-    // It should be correct
-    private void packetOut(PacketContext context, PortNumber portNumber) {
-        context.treatmentBuilder().setOutput(portNumber);
-        context.send();
-    }
+        // It should be correct
+        public void packetOut(PacketContext context, PortNumber portNumber) {
+            context.treatmentBuilder().setOutput(portNumber);
+            context.send();
+        }
 
-    private void installRule(PacketContext context, HostId srcMAC, HostId dstMAC) {
-        Ethernet inPkt = context.inPacket().parsed();
-        TrafficSelector.Builder selectorBuilder = DefaultTrafficSelector.builder();
-        Host dst = hostService.getHost(dstMAC);
-        Host src = hostService.getHost(srcMAC);
+        public void installRule(PacketContext context, MacAddress srcMac, MacAddress dstMac, PortNumber outPort) {
 
-        macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), Maps.newConcurrentMap());
-        Map<MacAddress, PortNumber> macTable = macTables.get(context.inPacket().receivedFrom().deviceId());
-        MacAddress srcMac = context.inPacket().parsed().getSourceMAC();
-        MacAddress dstMac = context.inPacket().parsed().getDestinationMAC();
-        log.info("Daniel src Mac: " + srcMac);
-        log.info("Daniel dst Mac: " + dstMac);
-        macTable.put(srcMac, context.inPacket().receivedFrom().port());
+            log.info("Fuck1: " + context.inPacket().receivedFrom().deviceId());
+            // If output mac address match
+            TrafficSelector.Builder selectorBuilder = DefaultTrafficSelector.builder();
+            selectorBuilder.matchEthDst(dstMac);
 
-        PortNumber outPort = macTable.get(dstMac);
-        if(outPort == null){
-            packetOut(context, PortNumber.FLOOD);
-        } else
-        {
-            selectorBuilder.matchEthSrc(inPkt.getSourceMAC())
-                    .matchEthDst(inPkt.getDestinationMAC());
+            log.info("Fuck2: " + context.inPacket().receivedFrom().deviceId());
 
-            TrafficTreatment treatment = DefaultTrafficTreatment.builder()
-                    .setOutput(dst.location().port()).build();
+            // Send to known output port
+            TrafficTreatment treatment = DefaultTrafficTreatment.builder().setOutput(outPort).build();
 
+            log.info("Fuck3: " + context.inPacket().receivedFrom().deviceId());
+            // Add flow rule to device
             FlowRule fr = DefaultFlowRule.builder()
                 .withSelector(selectorBuilder.build())
                 .withTreatment(treatment)
                 .forDevice(context.inPacket().receivedFrom().deviceId()).withPriority(PacketPriority.REACTIVE.priorityValue())
-                .makeTemporary(60)
                 .fromApp(appId).build();
             flowRuleService.applyFlowRules(fr);
+            log.info("Fuck4: " + context.inPacket().receivedFrom().deviceId());
 
-            // ForwardingObjective forwardingObjective = DefaultForwardingObjective.builder()
-            //         .withSelector(selectorBuilder.build())
-            //         .withTreatment(treatment)
-            //         .withPriority(10)
-            //         .withFlag(ForwardingObjective.Flag.VERSATILE)
-            //         .fromApp(appId)
-            //         .makeTemporary(10)
-            //         .add();
-
-            // flowObjectiveService.forward(context.inPacket().receivedFrom().deviceId(), forwardingObjective);
-            // packetOut(context, PortNumber.TABLE);
         }
     }
+}
 
     // @Modified
     // public void modified(ComponentContext context) {
@@ -242,4 +229,4 @@ public class AppComponent {
     // public void someMethod() {
     //     log.info("Invoked");
     // }
-}
+
