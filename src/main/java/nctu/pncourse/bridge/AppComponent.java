@@ -106,7 +106,7 @@ public class AppComponent {
         appId = coreService.registerApplication("nctu.pncourse.demo");
         packetService.addProcessor(processor, PacketProcessor.director(2));  
         TrafficSelector.Builder selector = DefaultTrafficSelector.builder();
-        selector.matchEthType(Ethernet.TYPE_IPV4);  // Does arp have to be match>
+        selector.matchEthType(Ethernet.TYPE_IPV4).matchEthType(Ethernet.TYPE_ARP); 
 
         packetService.requestPackets(selector.build(), PacketPriority.REACTIVE, appId);
         log.info("GoGo");
@@ -135,20 +135,20 @@ public class AppComponent {
             Host dst = hostService.getHost(dstMAC);
 
             // Check whether inPacket is in the MAC table
-            if (macTables.get(context.inPacket().receivedFrom().deviceId()) != null) {
-                macTables.remove(context.inPacket().receivedFrom().deviceId());
-                installRule(context, srcMAC, dstMAC);
-                packetOut(context, PortNumber.TABLE);
-                return;
-            }
-            else {
-                // push into map
-                // macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), new Pair<MacAddress, PortNumber>(context.inPacket().parsed().getSourceMAC()
-                //                     , context.inPacket().receivedFrom().port()));
-                macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), context.inPacket().receivedFrom().deviceId());
-            }
+            // if (macTables.get(context.inPacket().receivedFrom().deviceId()) != null) {
+            //     macTables.remove(context.inPacket().receivedFrom().deviceId());
+            //     installRule(context, srcMAC, dstMAC);
+            //     packetOut(context, PortNumber.TABLE);
+            //     return;
+            // }
+            // else {
+            //     // push into map
+            //     // macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), new Pair<MacAddress, PortNumber>(context.inPacket().parsed().getSourceMAC()
+            //     //                     , context.inPacket().receivedFrom().port()));
+            //     macTables.putIfAbsent(context.inPacket().receivedFrom().deviceId(), context.inPacket().receivedFrom().deviceId());
+            // }
 
-            if (dst == null)     // Do we have to match arp?
+            if (dst == null || ethPkt.getEtherType() == Ethernet.TYPE_ARP)   
             {
                 flood(context);
                 return;
@@ -159,6 +159,7 @@ public class AppComponent {
         }
     }
 
+    // It should be correct
     private void flood(PacketContext context) {
         if (topologyService.isBroadcastPoint(topologyService.currentTopology(), context.inPacket().receivedFrom()))
             packetOut(context, PortNumber.FLOOD);
@@ -166,6 +167,7 @@ public class AppComponent {
             context.block();
     }
 
+    // It should be correct
     private void packetOut(PacketContext context, PortNumber portNumber) {
         context.treatmentBuilder().setOutput(portNumber);
         context.send();
@@ -181,23 +183,26 @@ public class AppComponent {
             return;
         } else
         {
-            selectorBuilder.matchEthSrc(inPkt.getSourceMAC())
-                    .matchEthDst(inPkt.getDestinationMAC());
+            // selectorBuilder.matchEthSrc(inPkt.getSourceMAC())
+            //         .matchEthDst(inPkt.getDestinationMAC());
 
-            TrafficTreatment treatment = DefaultTrafficTreatment.builder()
-                    .setOutput(dst.location().port())
-                    .build();
+            // TrafficTreatment treatment = DefaultTrafficTreatment.builder()
+            //         .setOutput(dst.location().port())
+            //         .build();
 
-            ForwardingObjective forwardingObjective = DefaultForwardingObjective.builder()
-                    .withSelector(selectorBuilder.build())
-                    .withTreatment(treatment)
-                    .withPriority(10)
-                    .withFlag(ForwardingObjective.Flag.VERSATILE)
-                    .fromApp(appId)
-                    .makeTemporary(10)
-                    .add();
+            // ForwardingObjective forwardingObjective = DefaultForwardingObjective.builder()
+            //         .withSelector(selectorBuilder.build())
+            //         .withTreatment(treatment)
+            //         .withPriority(10)
+            //         .withFlag(ForwardingObjective.Flag.VERSATILE)
+            //         .fromApp(appId)
+            //         .makeTemporary(10)
+            //         .add();
 
-            flowObjectiveService.forward(context.inPacket().receivedFrom().deviceId(), forwardingObjective);
+            // flowObjectiveService.forward(context.inPacket().receivedFrom().deviceId(), forwardingObjective);
+            // packetOut(context, PortNumber.TABLE);
+
+            
         }
     }
 
