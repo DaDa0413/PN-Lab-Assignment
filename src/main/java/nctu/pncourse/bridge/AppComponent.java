@@ -192,26 +192,23 @@ public class AppComponent {
 
         public void installRule(PacketContext context, MacAddress srcMac, MacAddress dstMac, PortNumber outPort) {
 
-            log.info("Fuck1: " + context.inPacket().receivedFrom().deviceId());
             // If output mac address match
             TrafficSelector.Builder selectorBuilder = DefaultTrafficSelector.builder();
             selectorBuilder.matchEthDst(dstMac);
 
-            log.info("Fuck2: " + context.inPacket().receivedFrom().deviceId());
 
             // Send to known output port
             TrafficTreatment treatment = DefaultTrafficTreatment.builder().setOutput(outPort).build();
 
-            log.info("Fuck3: " + context.inPacket().receivedFrom().deviceId());
+            log.info("Daniel apply to: " + context.inPacket().receivedFrom().deviceId());
             // Add flow rule to device
             FlowRule fr = DefaultFlowRule.builder()
                 .withSelector(selectorBuilder.build())
                 .withTreatment(treatment)
-                .forDevice(context.inPacket().receivedFrom().deviceId()).withPriority(PacketPriority.REACTIVE.priorityValue())
+                .forDevice(context.inPacket().receivedFrom().deviceId())
+                .withPriority(PacketPriority.REACTIVE.priorityValue())
                 .fromApp(appId).build();
             flowRuleService.applyFlowRules(fr);
-            log.info("Fuck4: " + context.inPacket().receivedFrom().deviceId());
-
         }
     }
 }
