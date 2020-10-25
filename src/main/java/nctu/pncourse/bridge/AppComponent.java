@@ -136,11 +136,11 @@ public class AppComponent {
             if (ethPkt == null)
                 return;
 
-            HostId srcMAC = HostId.hostId(ethPkt.getSourceMAC());
-            HostId dstMAC = HostId.hostId(ethPkt.getDestinationMAC());
-            log.info("Daniel src MAC: " + srcMAC);
-            log.info("Daniel dst MAC: " + dstMAC);
-            Host dst = hostService.getHost(dstMAC);
+            HostId srcId = HostId.hostId(ethPkt.getSourceMAC());    // creeate 2 hostId object
+            HostId dstId = HostId.hostId(ethPkt.getDestinationMAC());
+            log.info("Daniel src MAC: " + srcId);
+            log.info("Daniel dst MAC: " + dstId);
+            // Host dst = hostService.getHost(dstId);
 
             // Check whether inPacket is in the MAC table
             // if (macTables.get(context.inPacket().receivedFrom().deviceId()) != null) {
@@ -162,7 +162,7 @@ public class AppComponent {
                 flood(context);
                 return;
             }
-            installRule(context, srcMAC, dstMAC);
+            installRule(context, srcId, dstId);
             packetOut(context, PortNumber.TABLE);
             return;
         }
