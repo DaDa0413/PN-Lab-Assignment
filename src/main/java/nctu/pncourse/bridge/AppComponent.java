@@ -207,8 +207,11 @@ public class AppComponent {
                 .withTreatment(treatment)
                 .forDevice(context.inPacket().receivedFrom().deviceId())
                 .withPriority(PacketPriority.REACTIVE.priorityValue())
+                .makeTemporary(60)
                 .fromApp(appId).build();
+            log.info("Daniel build complete");
             flowRuleService.applyFlowRules(fr);
+            log.info("Daniel apply complete");
         }
     }
 }
