@@ -111,22 +111,13 @@ public class AppComponent {
     @Activate
     protected void activate() {
         // cfgService.registerProperties(getClass());
-        appId = coreService.registerApplication("nctu.pncourse.bridge");
-        // packetService.addProcessor(processor, PacketProcessor.director(3));  
-        // TrafficSelector.Builder selector = DefaultTrafficSelector.builder();
-        // selector.matchEthType(Ethernet.TYPE_IPV4).matchEthType(Ethernet.TYPE_ARP); 
-
-        // packetService.requestPackets(selector.build(), PacketPriority.REACTIVE, appId);
-        // log.info("GoGo");
-        packetService.addProcessor(processor, PacketProcessor.director(3));
-
-        /*
-        * 限制packet類型為IPV4與ARP
-        */
+        appId = coreService.registerApplication("nctu.pncourse.demo");
+        packetService.addProcessor(processor, PacketProcessor.director(2));  
         packetService.requestPackets(DefaultTrafficSelector.builder()
-                    .matchEthType(Ethernet.TYPE_IPV4).build(), PacketPriority.REACTIVE, appId, Optional.empty());
+            .matchEthType(Ethernet.TYPE_IPV4).build(), PacketPriority.REACTIVE, appId, Optional.empty());
         packetService.requestPackets(DefaultTrafficSelector.builder()
-                    .matchEthType(Ethernet.TYPE_ARP).build(), PacketPriority.REACTIVE, appId, Optional.empty());
+                .matchEthType(Ethernet.TYPE_ARP).build(), PacketPriority.REACTIVE, appId, Optional.empty());
+        log.info("GoGo");
     }
 
     @Deactivate
@@ -144,40 +135,38 @@ public class AppComponent {
             //     return;
 
             // To simplify parameter's length
-            // Ethernet ethPkt = context.inPacket().parsed();
+            Ethernet ethPkt = context.inPacket().parsed();
             // if (ethPkt == null)
             //     return;
 
-            // if (ethPkt.getEtherType() != Ethernet.TYPE_IPV4 && ethPkt.getEtherType() != Ethernet.TYPE_ARP) {
-            //     return;
-            // }
+            if (ethPkt.getEtherType() != Ethernet.TYPE_IPV4 && ethPkt.getEtherType() != Ethernet.TYPE_ARP) {
+                return;
+            }
 
             ConnectPoint cp = context.inPacket().receivedFrom();
-            // MacAddress srcMac = ethPkt.getSourceMAC();
-            // MacAddress dstMac = ethPkt.getDestinationMAC();
+            MacAddress srcMac = ethPkt.getSourceMAC();
+            MacAddress dstMac = ethPkt.getDestinationMAC();
 
-            // // Create new device if it is not in mactables
+            // Create new device if it is not in mactables
             macTables.putIfAbsent(cp.deviceId(), Maps.newConcurrentMap());
-            // Map<MacAddress, PortNumber> macTable = macTables.get(cp.deviceId());
+            Map<MacAddress, PortNumber> macTable = macTables.get(cp.deviceId());
 
-            // // Put input mac and its port into the current device
-            // macTable.putIfAbsent(srcMac, cp.port());
-            // log.info("Daniel Packet In: Device, Mac, port: " + cp.deviceId() + " " + srcMac + " "+ cp.port());
+            // Put input mac and its port into the current device
+            macTable.putIfAbsent(srcMac, cp.port());
+            log.info("Daniel Packet In: Device, Mac, port: " + cp.deviceId() + " " + srcMac + " "+ cp.port());
 
-            // PortNumber outPort = macTable.get(dstMac);
+            PortNumber outPort = macTable.get(dstMac);
 
-            // if (outPort == null) {
-            //     log.info("Daniel: Broadcast " + dstMac);
-            //     packetOut(context, PortNumber.FLOOD);
-            //     return;
-            // }
-            // else {
-            //     installRule(context, srcMac, dstMac, outPort);
-            //     packetOut(context, outPort);
-            //     return;
-            // }
-
-            actLikeSwitch(context);
+            if (outPort == null) {
+                log.info("Daniel: Broadcast " + dstMac);
+                packetOut(context, PortNumber.FLOOD);
+                return;
+            }
+            else {
+                installRule(context, srcMac, dstMac, outPort);
+                packetOut(context, outPort);
+                return;
+            }
         }
     
 
@@ -208,36 +197,6 @@ public class AppComponent {
                 .fromApp(appId).build();
             flowRuleService.applyFlowRules(fr);
         }
-    }
-
-    public void actLikeSwitch(PacketContext pc) {
-        Short type = pc.inPacket().parsed().getEtherType();
-        if (type != Ethernet.TYPE_IPV4 && type != Ethernet.TYPE_ARP) {
-            return;
-        }
-        ConnectPoint cp = pc.inPacket().receivedFrom();
-        Map<MacAddress, PortNumber> macTable = macTables.get(cp.deviceId());
-        MacAddress srcMac = pc.inPacket().parsed().getSourceMAC();
-        MacAddress dstMac = pc.inPacket().parsed().getDestinationMAC();
-        macTable.put(srcMac, cp.port());
-        PortNumber outPort = macTable.get(dstMac);
-        if (outPort != null) {
-          pc.treatmentBuilder().setOutput(outPort);
-          FlowRule fr = DefaultFlowRule.builder()
-                  .withSelector(DefaultTrafficSelector.builder().matchEthDst(dstMac).build())
-                  .withTreatment(DefaultTrafficTreatment.builder().setOutput(outPort).build())
-                  .forDevice(cp.deviceId()).withPriority(PacketPriority.REACTIVE.priorityValue())
-                  .makeTemporary(60)
-                  .fromApp(appId).build();
-          flowRuleService.applyFlowRules(fr);
-          pc.send();
-        } else {
-            actLikeHub(pc);
-        }
-    }
-    public void actLikeHub(PacketContext pc) {
-        pc.treatmentBuilder().setOutput(PortNumber.FLOOD);
-        pc.send();
     }
 }
 
