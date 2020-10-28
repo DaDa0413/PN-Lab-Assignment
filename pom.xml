@@ -29,8 +29,8 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <onos.version>2.2.0</onos.version>
         <!-- Uncomment to generate ONOS app from this module. -->
-        <onos.app.name>nctu.pncourse.demo</onos.app.name>
-        <onos.app.title>demo</onos.app.title>
+        <onos.app.name>nctu.pncourse.bridge</onos.app.name>
+        <onos.app.title>learning-bridge</onos.app.title>
         <onos.app.origin>pncourse, nctu</onos.app.origin>
         <onos.app.category>default</onos.app.category>
         <onos.app.url>http://onosproject.org</onos.app.url>
